@@ -1,0 +1,28 @@
+# Environment
+.env
+*.env.local
+
+# Rust
+rust-core/target/
+rust-core/**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+ai-service/.venv/
+ai-service/venv/
+ai-service/*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker volumes (lokal)
+postgres_data/
+redis_data/
+
+# OS
+.DS_Store
+Thumbs.db
