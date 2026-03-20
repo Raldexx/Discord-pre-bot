@@ -4,7 +4,7 @@ FROM rust:1.78-slim AS builder
 WORKDIR /app
 
 # Bağımlılıkları önce kopyala (cache optimizasyonu)
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -f target/release/deps/discord_bot*
