@@ -1,25 +1,28 @@
-# Build aşaması
-FROM rust:1.78-slim AS builder
+# Build stage
+FROM rust:1.78 AS builder
 
 WORKDIR /app
 
-# Bağımlılıkları önce kopyala (cache optimizasyonu)
-COPY Cargo.toml Cargo.lock ./
+# Copy dependency files first (cache optimization)
+COPY Cargo.toml ./
+# Note: Cargo.lock will be generated during build
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
+RUN cargo build --release || true
 RUN rm -f target/release/deps/discord_bot*
 
-# Gerçek kaynak kodunu kopyala
+# Copy real source code
 COPY src ./src
 COPY migrations ./migrations
 RUN cargo build --release
 
-# Çalışma aşaması (minimal imaj)
+# Runtime stage
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libssl3 \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3 \
+        libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
