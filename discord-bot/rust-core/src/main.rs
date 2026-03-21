@@ -9,9 +9,10 @@ use std::env;
 use std::sync::Arc;
 use tracing::{error, info};
 
+#[derive(Debug)]
 pub struct Data {
     pub db: Arc<sqlx::PgPool>,
-    pub redis: Arc<redis::aio::ConnectionManager>,
+    pub redis: Arc<tokio::sync::Mutex<redis::aio::MultiplexedConnection>>,
     pub http_client: reqwest::Client,
     pub ai_service_url: String,
 }
@@ -29,33 +30,34 @@ async fn main() {
         )
         .init();
 
-    let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN bulunamadı");
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL bulunamadı");
-    let redis_url = env::var("REDIS_URL").expect("REDIS_URL bulunamadı");
+    let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not found");
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not found");
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL not found");
     let ai_service_url = env::var("AI_SERVICE_URL").unwrap_or("http://localhost:8000".to_string());
 
-    // Veritabanı bağlantısı
-    info!("Veritabanına bağlanılıyor...");
+    // Database connection
+    info!("Connecting to database...");
     let pool = sqlx::PgPool::connect(&database_url)
         .await
-        .expect("Veritabanına bağlanılamadı");
+        .expect("Failed to connect to database");
 
-    // Migrasyonları çalıştır
+    // Run migrations
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
-        .expect("Migrasyon başarısız");
+        .expect("Migration failed");
 
-    // Redis bağlantısı
-    info!("Redis'e bağlanılıyor...");
-    let redis_client = redis::Client::open(redis_url).expect("Redis client oluşturulamadı");
-    let redis_conn = redis::aio::ConnectionManager::new(redis_client)
+    // Redis connection
+    info!("Connecting to Redis...");
+    let redis_client = redis::Client::open(redis_url).expect("Failed to create Redis client");
+    let redis_conn = redis_client
+        .get_multiplexed_async_connection()
         .await
-        .expect("Redis bağlantısı kurulamadı");
+        .expect("Failed to connect to Redis");
 
     let data = Data {
         db: Arc::new(pool),
-        redis: Arc::new(redis_conn),
+        redis: Arc::new(tokio::sync::Mutex::new(redis_conn)),
         http_client: reqwest::Client::new(),
         ai_service_url,
     };
@@ -73,16 +75,16 @@ async fn main() {
             },
             on_error: |error| {
                 Box::pin(async move {
-                    error!("Bot hatası: {:?}", error);
+                    error!("Bot error: {}", error);
                 })
             },
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
-                info!("Bot başlatılıyor...");
+                info!("Starting bot...");
                 poise::builtins::register_globally(ctx, &framework.commands()).await?;
-                info!("Slash komutlar kaydedildi");
+                info!("Slash commands registered");
                 Ok(data)
             })
         })
@@ -91,10 +93,10 @@ async fn main() {
     let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
         .await
-        .expect("Client oluşturulamadı");
+        .expect("Failed to create client");
 
-    info!("Bot çevrimiçi!");
+    info!("Bot is online!");
     if let Err(e) = client.start().await {
-        error!("Bot hatası: {:?}", e);
+        error!("Bot error: {:?}", e);
     }
 }

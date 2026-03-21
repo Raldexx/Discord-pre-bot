@@ -1,47 +1,51 @@
 import re
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Türkçe küfür/hakaret pattern'ları (şifreli versiyonlar dahil)
-TURKISH_TOXIC_PATTERNS = [
-    # Küfürler - doğrudan
-    r"\boç\b", r"\bamu[kq]\b", r"\bsik\b", r"\bs[1!]k\b",
-    r"\borospu\b", r"\bpiç\b", r"\bp[1!]ç\b", r"\bboktan\b",
-    r"\bgerizekal[iı]\b", r"\baptal\b", r"\bsalak\b", r"\bnobody\b",
-    r"\bkafas[iı]z\b", r"\byavşak\b", r"\ballahsız\b",
+# ----------------------------------------------------------------
+# TOXIC PATTERNS — English + Global
+# ----------------------------------------------------------------
 
-    # Şifreli versiyonlar (filtre atlatma girişimi)
-    r"s[\*\.\-_]k", r"o[\*\.\-_]ç", r"p[\*\.\-_]ç",
-    r"[a4]m[u0]k", r"or[o0]spu",
-
-    # Tehdit içerikli
-    r"(seni|sizi).{0,10}(öldür|gebertir|bitir)",
-    r"(ip[e]|idam).{0,5}(çek|as)",
-    r"kafan[ıi].{0,5}(patla|kır)",
+OFFENSIVE_PATTERNS = [
+    r"\bf[u*@]ck\b", r"\bs[h*]it\b", r"\bb[i*]tch\b", r"\ba[s*]{2}hole\b",
+    r"\bc[u*]nt\b", r"\bd[i*]ck\b", r"\bp[u*]ssy\b", r"\bwh[o*]re\b",
+    r"\bn[i*]gg[ae]r\b", r"\bf[a*]gg[o0]t\b", r"\br[e*]tard\b",
+    r"\bk[i*]ke\b", r"\bsp[i*]c\b", r"\bch[i*]nk\b",
+    # Cipher bypass attempts
+    r"f[\*\.\-_\s]u[\*\.\-_\s]c[\*\.\-_\s]k",
+    r"s[\*\.\-_\s]h[\*\.\-_\s]i[\*\.\-_\s]t",
+    r"[a4]s+h+[o0]+l+[e3]+",
 ]
 
-# İngilizce toxic pattern'lar (temel)
-ENGLISH_TOXIC_PATTERNS = [
-    r"\bf[u*]ck\b", r"\bs[h*]it\b", r"\bb[i*]tch\b",
-    r"\bk[i*]ll\s+your?self\b", r"\bdie\s+already\b",
-    r"\bn[i*]gg[ae]r\b", r"\bfagg[o0]t\b",
+THREAT_PATTERNS = [
+    r"(i('ll|will|am going to|gonna)).{0,20}(kill|murder|hurt|destroy)\s+you",
+    r"(you('re| are)).{0,10}(dead|finished|done)",
+    r"(find|track|locate).{0,15}(you|your (house|address|ip|location))",
+    r"watch\s+your\s+back",
+    r"(gonna|going to).{0,10}(get|hurt|kill)\s+you",
 ]
 
-# Ağır tehdit içeren pattern'lar (anında aksiyon)
 SEVERE_PATTERNS = [
-    r"(kendini|kendinizi).{0,10}(öldür|as|zehirle)",
-    r"kill\s+your?self",
-    r"kys\b",
-    r"(bomb|bomba).{0,10}(at|patlat|yerleştir)",
+    r"kill\s+your\s*self",
+    r"\bkys\b",
+    r"go\s+die",
+    r"end\s+your\s*(life|self)",
+    r"(you\s+should|just).{0,10}(die|kill yourself|end it)",
+    r"(bomb|shoot|attack).{0,15}(school|place|everyone|server)",
 ]
 
-# Kavga/gerilim tespiti için kelimeler
 AGGRESSION_KEYWORDS = [
-    "seni tanıdım", "bulacağım", "pişman olacaksın", "hesap soracağım",
-    "gözünü sikerim", "bekle", "adresini", "ip adres",
-    "you're dead", "gonna find you", "watch your back",
+    "i know where you live", "come find me", "say that to my face",
+    "you're dead", "dead man", "catch these hands", "on sight",
+    "pulling up", "run your location", "drop your addy",
+    "i'll end you", "say it again i dare you",
+]
+
+SPAM_TOXIC_PATTERNS = [
+    r"(raid|nuke).{0,10}(this|the)\s+server",
+    r"everyone\s+(leave|quit|raid)",
+    r"@everyone.{0,20}(raid|attack|spam)",
 ]
 
 
@@ -49,117 +53,80 @@ class ToxicityDetector:
     def __init__(self):
         self.is_loaded = False
         self._detoxify_model = None
-        self._turkish_patterns = None
-        self._english_patterns = None
-        self._severe_patterns = None
+        self._compiled = {}
 
     def load(self):
-        """Modeli ve pattern'ları yükle."""
-        # Pattern'ları derle
-        self._turkish_patterns = [
-            re.compile(p, re.IGNORECASE | re.UNICODE)
-            for p in TURKISH_TOXIC_PATTERNS
-        ]
-        self._english_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in ENGLISH_TOXIC_PATTERNS
-        ]
-        self._severe_patterns = [
-            re.compile(p, re.IGNORECASE | re.UNICODE)
-            for p in SEVERE_PATTERNS
-        ]
+        self._compiled["offensive"]  = [re.compile(p, re.IGNORECASE) for p in OFFENSIVE_PATTERNS]
+        self._compiled["threat"]     = [re.compile(p, re.IGNORECASE) for p in THREAT_PATTERNS]
+        self._compiled["severe"]     = [re.compile(p, re.IGNORECASE) for p in SEVERE_PATTERNS]
+        self._compiled["spam_toxic"] = [re.compile(p, re.IGNORECASE) for p in SPAM_TOXIC_PATTERNS]
 
-        # Detoxify modelini yüklemeyi dene (opsiyonel, yoksa pattern'larla devam et)
         try:
             from detoxify import Detoxify
-            self._detoxify_model = Detoxify("multilingual")
-            logger.info("Detoxify modeli yüklendi.")
-        except ImportError:
-            logger.warning("Detoxify bulunamadı, yalnızca pattern tabanlı analiz kullanılacak.")
+            self._detoxify_model = Detoxify("original")
+            logger.info("Detoxify model loaded.")
         except Exception as e:
-            logger.warning(f"Detoxify yüklenemedi: {e}. Pattern tabanlı analiz aktif.")
+            logger.warning(f"Detoxify unavailable: {e}. Pattern-based analysis only.")
 
         self.is_loaded = True
+        logger.info("ToxicityDetector ready.")
 
     def analyze(self, text: str) -> dict:
-        """
-        Metni analiz et ve toksisite sonucu döndür.
-        Returns: {is_toxic, score, reason}
-        """
-        if not self.is_loaded:
-            return {"is_toxic": False, "score": 0.0, "reason": ""}
+        if not self.is_loaded or len(text.strip()) < 2:
+            return {"is_toxic": False, "score": 0.0, "reason": "", "category": "clean"}
 
-        text_clean = text.strip()
+        t = text.strip()
 
-        # 1. Ağır tehdit kontrolü (en öncelikli)
-        for pattern in self._severe_patterns:
-            if pattern.search(text_clean):
-                logger.info(f"Ağır tehdit tespit edildi: {text_clean[:50]}")
-                return {
-                    "is_toxic": True,
-                    "score": 1.0,
-                    "reason": "Ağır tehdit içeriği",
-                }
+        # Priority 1 — Severe
+        for p in self._compiled["severe"]:
+            if p.search(t):
+                return {"is_toxic": True, "score": 1.0,  "reason": "Severe harmful content",       "category": "severe"}
 
-        # 2. Türkçe pattern kontrolü
-        for pattern in self._turkish_patterns:
-            if pattern.search(text_clean):
-                return {
-                    "is_toxic": True,
-                    "score": 0.9,
-                    "reason": "Küfür/hakaret içeriği",
-                }
+        # Priority 2 — Threats
+        for p in self._compiled["threat"]:
+            if p.search(t):
+                return {"is_toxic": True, "score": 0.9,  "reason": "Threatening language",          "category": "threat"}
 
-        # 3. İngilizce pattern kontrolü
-        for pattern in self._english_patterns:
-            if pattern.search(text_clean):
-                return {
-                    "is_toxic": True,
-                    "score": 0.85,
-                    "reason": "Offensive language",
-                }
+        # Priority 3 — Offensive / slurs
+        for p in self._compiled["offensive"]:
+            if p.search(t):
+                return {"is_toxic": True, "score": 0.85, "reason": "Offensive language or slur",    "category": "offensive"}
 
-        # 4. Saldırganlık kelime kontrolü
-        text_lower = text_clean.lower()
-        for keyword in AGGRESSION_KEYWORDS:
-            if keyword in text_lower:
-                return {
-                    "is_toxic": True,
-                    "score": 0.75,
-                    "reason": "Tehdit/saldırgan dil",
-                }
+        # Priority 4 — Raid incitement
+        for p in self._compiled["spam_toxic"]:
+            if p.search(t):
+                return {"is_toxic": True, "score": 0.8,  "reason": "Server raid incitement",        "category": "raid_incite"}
 
-        # 5. Detoxify ML modeli (varsa)
+        # Priority 5 — Aggression keywords
+        t_lower = t.lower()
+        for kw in AGGRESSION_KEYWORDS:
+            if kw in t_lower:
+                return {"is_toxic": True, "score": 0.75, "reason": "Aggressive / threatening tone", "category": "aggression"}
+
+        # Priority 6 — Detoxify ML
         if self._detoxify_model:
             try:
-                results = self._detoxify_model.predict(text_clean)
-                toxicity_score = float(results.get("toxicity", 0))
-                severe_score = float(results.get("severe_toxicity", 0))
-                threat_score = float(results.get("threat", 0))
-
-                max_score = max(toxicity_score, severe_score * 1.5, threat_score * 1.3)
-
-                if max_score > 0.75:
-                    reason = self._get_reason(results)
-                    return {
-                        "is_toxic": True,
-                        "score": round(max_score, 3),
-                        "reason": reason,
+                r = self._detoxify_model.predict(t)
+                score = max(
+                    float(r.get("toxicity",        0)),
+                    float(r.get("severe_toxicity", 0)) * 1.5,
+                    float(r.get("threat",          0)) * 1.4,
+                    float(r.get("insult",          0)) * 1.1,
+                    float(r.get("identity_attack", 0)) * 1.3,
+                )
+                if score > 0.75:
+                    top = max(r, key=lambda k: r.get(k, 0))
+                    labels = {
+                        "toxicity":        ("Toxic content",          "toxic"),
+                        "severe_toxicity": ("Severely toxic content", "severe"),
+                        "obscene":         ("Obscene content",        "obscene"),
+                        "threat":          ("Threatening content",    "threat"),
+                        "insult":          ("Insulting content",      "insult"),
+                        "identity_attack": ("Identity-based attack",  "identity"),
                     }
+                    reason, cat = labels.get(top, ("Inappropriate content", "other"))
+                    return {"is_toxic": True, "score": round(min(score, 1.0), 3), "reason": reason, "category": cat}
             except Exception as e:
-                logger.error(f"Detoxify analiz hatası: {e}")
+                logger.error(f"Detoxify error: {e}")
 
-        return {"is_toxic": False, "score": 0.0, "reason": ""}
-
-    def _get_reason(self, results: dict) -> str:
-        """Detoxify sonuçlarından neden üret."""
-        labels = {
-            "toxicity": "Toksik içerik",
-            "severe_toxicity": "Ağır toksik içerik",
-            "obscene": "Müstehcen içerik",
-            "threat": "Tehdit içeriği",
-            "insult": "Hakaret içeriği",
-            "identity_attack": "Kimliğe saldırı",
-        }
-        top = max(results, key=lambda k: results.get(k, 0))
-        return labels.get(top, "Uygunsuz içerik")
+        return {"is_toxic": False, "score": 0.0, "reason": "", "category": "clean"}

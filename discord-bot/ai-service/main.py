@@ -23,9 +23,9 @@ class AnalyzeResponse(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    logger.info("AI servisi başlatılıyor...")
+    logger.info("AI service starting...")
     detector.load()
-    logger.info("Model yüklendi, servis hazır.")
+    logger.info("Model loaded, service ready.")
 
 
 @app.get("/health")

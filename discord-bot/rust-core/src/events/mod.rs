@@ -20,7 +20,7 @@ pub async fn handler(
         }
 
         serenity::FullEvent::GuildMemberAddition { new_member } => {
-            info!("Yeni üye: {} ({})", new_member.user.name, new_member.guild_id);
+            info!("New member: {} ({})", new_member.user.name, new_member.guild_id);
             member::on_member_join(ctx, new_member, data).await?;
         }
 
@@ -37,7 +37,7 @@ pub async fn handler(
         }
 
         serenity::FullEvent::Ready { data_about_bot } => {
-            info!("Bot hazır: {}", data_about_bot.user.name);
+            info!("Bot ready: {}", data_about_bot.user.name);
         }
 
         _ => {}
@@ -58,7 +58,7 @@ async fn handle_component(
         return Ok(());
     }
 
-    // Rol butonları
+    // Role buttons
     if custom_id.starts_with("role_") {
         let role_id_str = custom_id.strip_prefix("role_").unwrap();
         if let Ok(role_id) = role_id_str.parse::<u64>() {
@@ -83,14 +83,14 @@ async fn handle_role_toggle(
             .await?
             .remove_role(ctx, role_id)
             .await?;
-        "✅ Rol kaldırıldı."
+        "✅ Role removed."
     } else {
         guild_id
             .member(ctx, interaction.user.id)
             .await?
             .add_role(ctx, role_id)
             .await?;
-        "✅ Rol verildi."
+        "✅ Role assigned."
     };
 
     interaction

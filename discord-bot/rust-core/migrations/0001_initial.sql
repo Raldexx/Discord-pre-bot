@@ -1,4 +1,4 @@
--- Guild konfigürasyonu
+-- Guild configuration
 CREATE TABLE IF NOT EXISTS guild_config (
     guild_id            BIGINT PRIMARY KEY,
     auto_role_id        BIGINT,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS guild_config (
     updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Uyarı geçmişi
+-- Warning history
 CREATE TABLE IF NOT EXISTS warnings (
     id              SERIAL PRIMARY KEY,
     user_id         BIGINT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS warnings (
 CREATE INDEX IF NOT EXISTS idx_warnings_user_guild
     ON warnings (user_id, guild_id);
 
--- Moderasyon logları
+-- Moderation logs
 CREATE TABLE IF NOT EXISTS mod_logs (
     id          SERIAL PRIMARY KEY,
     guild_id    BIGINT NOT NULL,
@@ -36,14 +36,14 @@ CREATE TABLE IF NOT EXISTS mod_logs (
     action      VARCHAR(50) NOT NULL,  -- ban, timeout, warn, kick
     reason      TEXT,
     moderator_id BIGINT,
-    duration    INTEGER,               -- dakika cinsinden (timeout için)
+    duration    INTEGER,               -- in minutes (for timeout)
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_mod_logs_guild
     ON mod_logs (guild_id, created_at DESC);
 
--- Raid olayları
+-- Raid events
 CREATE TABLE IF NOT EXISTS raid_events (
     id              SERIAL PRIMARY KEY,
     guild_id        BIGINT NOT NULL,

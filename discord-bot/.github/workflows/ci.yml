@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain kur
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -27,7 +27,7 @@ jobs:
         with:
           workspaces: rust-core
 
-      - name: Format kontrolü
+      - name: Check formatting
         run: cargo fmt --check
 
       - name: Clippy (lint)
@@ -46,14 +46,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Python kur
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Bağımlılıkları yükle
-        run: |
-          pip install ruff pytest httpx fastapi pydantic uvicorn
+      - name: Install dependencies
+        run: pip install ruff pytest httpx fastapi pydantic uvicorn
 
       - name: Lint (ruff)
         run: ruff check .

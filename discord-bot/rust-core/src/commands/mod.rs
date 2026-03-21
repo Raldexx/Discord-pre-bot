@@ -1,8 +1,8 @@
 pub mod config;
+pub mod info;
 pub mod moderation;
 pub mod roles;
 pub mod setup;
-pub mod info;
 
 use crate::{Data, Error};
 
@@ -16,9 +16,9 @@ pub fn all_commands() -> Vec<poise::Command<Data, Error>> {
         moderation::unban(),
         moderation::clear(),
         moderation::lockdown(),
-        roles::rolpanel(),
+        roles::rolepanel(),
         info::botinfo(),
-        info::sunucuinfo(),
-        info::uyarilar(),
+        info::serverinfo(),
+        info::warnings(),
     ]
 }

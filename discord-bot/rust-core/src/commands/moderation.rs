@@ -1,12 +1,12 @@
 use crate::{Context, Error};
 use poise::serenity_prelude as serenity;
 
-/// Kullanıcıya uyarı ver
+/// Issue a warning to a user
 #[poise::command(slash_command, required_permissions = "MODERATE_MEMBERS")]
 pub async fn warn(
     ctx: Context<'_>,
-    #[description = "Uyarılacak kullanıcı"] kullanici: serenity::User,
-    #[description = "Uyarı nedeni"] neden: String,
+    #[description = "User to warn"] user: serenity::User,
+    #[description = "Reason for warning"] reason: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
 
@@ -14,9 +14,9 @@ pub async fn warn(
         "INSERT INTO warnings (user_id, guild_id, reason, moderator_id, created_at)
          VALUES ($1, $2, $3, $4, NOW())"
     )
-    .bind(kullanici.id.get() as i64)
+    .bind(user.id.get() as i64)
     .bind(guild_id.get() as i64)
-    .bind(&neden)
+    .bind(&reason)
     .bind(ctx.author().id.get() as i64)
     .execute(ctx.data().db.as_ref())
     .await?;
@@ -24,34 +24,28 @@ pub async fn warn(
     let warn_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2"
     )
-    .bind(kullanici.id.get() as i64)
+    .bind(user.id.get() as i64)
     .bind(guild_id.get() as i64)
     .fetch_one(ctx.data().db.as_ref())
     .await?;
 
-    // Kullanıcıya DM at
+    // DM the user
     let dm_embed = serenity::CreateEmbed::new()
-        .title("⚠️ Uyarı Aldınız")
-        .field("Sunucu", guild_id.to_string(), true)
-        .field("Neden", &neden, false)
-        .field("Toplam Uyarı", warn_count.to_string(), true)
+        .title("⚠️ You Received a Warning")
+        .field("Server", guild_id.to_string(), true)
+        .field("Reason", &reason, false)
+        .field("Total Warnings", warn_count.to_string(), true)
         .color(serenity::Colour::ORANGE)
         .timestamp(serenity::Timestamp::now());
 
-    kullanici
-        .dm(
-            ctx,
-            serenity::CreateMessage::new().embed(dm_embed),
-        )
-        .await
-        .ok(); // DM kapalıysa sessizce devam et
+    user.dm(ctx, serenity::CreateMessage::new().embed(dm_embed)).await.ok();
 
     let embed = serenity::CreateEmbed::new()
-        .title("⚠️ Uyarı Verildi")
-        .field("Kullanıcı", format!("{} ({})", kullanici.name, kullanici.id), true)
-        .field("Neden", &neden, false)
-        .field("Toplam Uyarı", warn_count.to_string(), true)
-        .field("Moderatör", ctx.author().name.clone(), true)
+        .title("⚠️ Warning Issued")
+        .field("User", format!("{} ({})", user.name, user.id), true)
+        .field("Reason", &reason, false)
+        .field("Total Warnings", warn_count.to_string(), true)
+        .field("Moderator", ctx.author().name.clone(), true)
         .color(serenity::Colour::ORANGE)
         .timestamp(serenity::Timestamp::now());
 
@@ -59,33 +53,31 @@ pub async fn warn(
     Ok(())
 }
 
-/// Kullanıcıyı sustur
+/// Mute a user
 #[poise::command(slash_command, required_permissions = "MODERATE_MEMBERS")]
 pub async fn timeout(
     ctx: Context<'_>,
-    #[description = "Susturulacak kullanıcı"] kullanici: serenity::User,
-    #[description = "Süre (dakika)"] dakika: u32,
-    #[description = "Neden"] neden: Option<String>,
+    #[description = "User to mute"] user: serenity::User,
+    #[description = "Duration (minutes)"] minutes: u32,
+    #[description = "Reason"] reason: Option<String>,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
-    let reason = neden.unwrap_or_else(|| "Neden belirtilmedi".to_string());
+    let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
 
-    let until = chrono::Utc::now() + chrono::Duration::minutes(dakika as i64);
+    let until_dt = chrono::Utc::now() + chrono::Duration::minutes(minutes as i64);
+    let until_str = until_dt.to_rfc3339();
+    let until = serenity::Timestamp::parse(&until_str)?;
 
     guild_id
-        .edit_member(
-            ctx,
-            kullanici.id,
-            serenity::EditMember::new().disable_communication_until(until.into()),
-        )
+        .edit_member(ctx, user.id, serenity::EditMember::new().disable_communication_until(until))
         .await?;
 
     let embed = serenity::CreateEmbed::new()
-        .title("🔇 Kullanıcı Susturuldu")
-        .field("Kullanıcı", format!("{} ({})", kullanici.name, kullanici.id), true)
-        .field("Süre", format!("{} dakika", dakika), true)
-        .field("Neden", &reason, false)
-        .field("Moderatör", ctx.author().name.clone(), true)
+        .title("🔇 User Timed Out")
+        .field("User", format!("{} ({})", user.name, user.id), true)
+        .field("Duration", format!("{} minutes", minutes), true)
+        .field("Reason", &reason, false)
+        .field("Moderator", ctx.author().name.clone(), true)
         .color(serenity::Colour::RED)
         .timestamp(serenity::Timestamp::now());
 
@@ -93,27 +85,25 @@ pub async fn timeout(
     Ok(())
 }
 
-/// Kullanıcıyı banla
+/// Ban a user
 #[poise::command(slash_command, required_permissions = "BAN_MEMBERS")]
 pub async fn ban(
     ctx: Context<'_>,
-    #[description = "Banlanacak kullanıcı"] kullanici: serenity::User,
-    #[description = "Neden"] neden: Option<String>,
-    #[description = "Silinecek mesaj günü (0-7)"] mesaj_gun: Option<u8>,
+    #[description = "User to ban"] user: serenity::User,
+    #[description = "Reason"] reason: Option<String>,
+    #[description = "Delete message days (0-7)"] delete_days: Option<u8>,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
-    let reason = neden.unwrap_or_else(|| "Neden belirtilmedi".to_string());
-    let delete_days = mesaj_gun.unwrap_or(0).min(7);
+    let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
+    let delete_days = delete_days.unwrap_or(0).min(7);
 
-    guild_id
-        .ban_with_reason(ctx, kullanici.id, delete_days, &reason)
-        .await?;
+    guild_id.ban_with_reason(ctx, user.id, delete_days, &reason).await?;
 
     let embed = serenity::CreateEmbed::new()
-        .title("🔨 Kullanıcı Banlandı")
-        .field("Kullanıcı", format!("{} ({})", kullanici.name, kullanici.id), true)
-        .field("Neden", &reason, false)
-        .field("Moderatör", ctx.author().name.clone(), true)
+        .title("🔨 User Banned")
+        .field("User", format!("{} ({})", user.name, user.id), true)
+        .field("Reason", &reason, false)
+        .field("Moderator", ctx.author().name.clone(), true)
         .color(serenity::Colour::RED)
         .timestamp(serenity::Timestamp::now());
 
@@ -121,77 +111,60 @@ pub async fn ban(
     Ok(())
 }
 
-/// Ban kaldır
+/// Remove a ban
 #[poise::command(slash_command, required_permissions = "BAN_MEMBERS")]
 pub async fn unban(
     ctx: Context<'_>,
-    #[description = "Kullanıcı ID"] kullanici_id: String,
+    #[description = "User ID"] user_id: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
-    let user_id: u64 = kullanici_id.parse()?;
-
-    guild_id
-        .unban(ctx, serenity::UserId::new(user_id))
-        .await?;
-
-    ctx.say(format!("✅ <@{}> kullanıcısının banı kaldırıldı.", user_id))
-        .await?;
+    let id: u64 = user_id.parse()?;
+    guild_id.unban(ctx, serenity::UserId::new(id)).await?;
+    ctx.say(format!("✅ <@{}> has been unbanned.", id)).await?;
     Ok(())
 }
 
-/// Mesaj temizle
+/// Delete messages
 #[poise::command(slash_command, required_permissions = "MANAGE_MESSAGES")]
 pub async fn clear(
     ctx: Context<'_>,
-    #[description = "Silinecek mesaj sayısı (1-100)"] adet: u8,
+    #[description = "Number of messages to delete (1-100)"] amount: u8,
 ) -> Result<(), Error> {
-    let adet = adet.clamp(1, 100);
-
-    let messages = ctx
-        .channel_id()
-        .messages(ctx, serenity::GetMessages::new().limit(adet))
-        .await?;
-
-    let message_ids: Vec<serenity::MessageId> = messages.iter().map(|m| m.id).collect();
-    let count = message_ids.len();
-
-    ctx.channel_id()
-        .delete_messages(ctx, &message_ids)
-        .await?;
-
+    let amount = amount.clamp(1, 100);
+    let messages = ctx.channel_id().messages(ctx, serenity::GetMessages::new().limit(amount)).await?;
+    let ids: Vec<serenity::MessageId> = messages.iter().map(|m| m.id).collect();
+    let count = ids.len();
+    ctx.channel_id().delete_messages(ctx, &ids).await?;
     ctx.send(
         poise::CreateReply::default()
-            .content(format!("🗑️ {} mesaj silindi.", count))
+            .content(format!("🗑️ Deleted {} message(s).", count))
             .ephemeral(true),
-    )
-    .await?;
+    ).await?;
     Ok(())
 }
 
-/// Manuel lockdown (raid sırasında)
+/// Manual lockdown
 #[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
 pub async fn lockdown(
     ctx: Context<'_>,
-    #[description = "Aç veya Kapat"] durum: String,
+    #[description = "on or off"] state: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
-    let mut redis = ctx.data().redis.as_ref().clone();
-
+    let mut conn = ctx.data().redis.lock().await;
     let lockdown_key = format!("lockdown:{}", guild_id);
 
-    match durum.to_lowercase().as_str() {
-        "ac" | "aç" | "on" => {
-            redis::AsyncCommands::set_ex::<_, _, ()>(&mut redis, &lockdown_key, "1", 3600).await?;
-            ctx.say("🔒 **LOCKDOWN AKTİF!** Yeni üye girişleri engellendi. Kapatmak için `/lockdown kapat` kullan.").await?;
+    match state.to_lowercase().as_str() {
+        "on" => {
+            redis::AsyncCommands::set_ex::<_, _, ()>(&mut *conn, &lockdown_key, "1", 3600usize).await?;
+            ctx.say("🔒 **LOCKDOWN ACTIVE!** New member joins are blocked. Use `/lockdown off` to disable.").await?;
         }
-        "kapat" | "off" => {
-            redis::AsyncCommands::del::<_, ()>(&mut redis, &lockdown_key).await?;
-            ctx.say("🔓 Lockdown kaldırıldı. Sunucu normale döndü.").await?;
+        "off" => {
+            redis::AsyncCommands::del::<_, ()>(&mut *conn, &lockdown_key).await?;
+            ctx.say("🔓 Lockdown lifted. Server is back to normal.").await?;
         }
         _ => {
-            ctx.say("❌ Geçersiz seçenek. `ac` veya `kapat` kullan.").await?;
+            ctx.say("❌ Invalid option. Use `on` or `off`.").await?;
         }
     }
-
     Ok(())
 }

@@ -1,15 +1,15 @@
 ---
-name: Özellik İsteği
-about: Yeni bir özellik öner
+name: Feature Request
+about: Suggest a new feature
 title: "[FEATURE] "
 labels: enhancement
 ---
 
-## 💡 Özellik Açıklaması
-<!-- Ne istiyorsun? -->
+## 💡 Feature Description
+<!-- What do you want? -->
 
-## 🎯 Neden Gerekli?
-<!-- Bu özellik hangi sorunu çözüyor? -->
+## 🎯 Why Is It Needed?
+<!-- What problem does this solve? -->
 
-## 📐 Önerilen Çözüm
-<!-- Nasıl implement edilebilir? -->
+## 📐 Suggested Solution
+<!-- How could it be implemented? -->

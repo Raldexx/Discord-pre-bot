@@ -32,7 +32,7 @@ pub async fn check_toxicity(
         let result: ToxicityResult = response.json().await?;
         Ok(result)
     } else {
-        // AI servisi çalışmıyorsa sessizce geç, botu engelleme
+        // AI service unavailable — fail silently, never block the bot
         Ok(ToxicityResult {
             is_toxic: false,
             score: 0.0,

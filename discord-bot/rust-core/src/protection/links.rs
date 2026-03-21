@@ -13,7 +13,7 @@ const ALLOWED_DOMAINS: &[&str] = &[
     "giphy.com",
 ];
 
-// Şüpheli pattern'lar
+// Suspicious patterns
 const SUSPICIOUS_PATTERNS: &[&str] = &[
     "free nitro",
     "freenitr",
@@ -26,25 +26,25 @@ const SUSPICIOUS_PATTERNS: &[&str] = &[
 pub fn has_unauthorized_link(content: &str) -> bool {
     let lower = content.to_lowercase();
 
-    // URL var mı kontrol et
+    // Check if URL is present
     if !lower.contains("http://") && !lower.contains("https://") && !lower.contains("www.") {
         return false;
     }
 
-    // Şüpheli pattern kontrolü (whitelist'ten önce)
+    // Suspicious pattern check (before whitelist)
     for pattern in SUSPICIOUS_PATTERNS {
         if lower.contains(pattern) {
             return true;
         }
     }
 
-    // Whitelist kontrolü - izin verilen domain varsa geç
+    // Whitelist check — allow if domain is whitelisted
     for domain in ALLOWED_DOMAINS {
         if lower.contains(domain) {
             return false;
         }
     }
 
-    // URL var ama whitelist'te değil
+    // URL present but not in whitelist
     true
 }

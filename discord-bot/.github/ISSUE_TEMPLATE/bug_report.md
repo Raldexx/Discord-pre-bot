@@ -1,28 +1,28 @@
 ---
 name: Bug Report
-about: Bir hata mı buldun? Bildir.
+about: Found a bug? Let us know.
 title: "[BUG] "
 labels: bug
 ---
 
-## 🐛 Hata Açıklaması
-<!-- Ne oldu? -->
+## 🐛 Bug Description
+<!-- What happened? -->
 
-## 📋 Adımlar
+## 📋 Steps to Reproduce
 1. 
 2. 
 3. 
 
-## ✅ Beklenen Davranış
-<!-- Ne olması gerekiyordu? -->
+## ✅ Expected Behavior
+<!-- What should have happened? -->
 
-## 💻 Ortam
+## 💻 Environment
 - OS:
-- Rust versiyonu:
-- Python versiyonu:
-- Docker versiyonu:
+- Rust version:
+- Python version:
+- Docker version:
 
-## 📄 Loglar
+## 📄 Logs
 ```
-# İlgili log çıktılarını buraya yapıştır
+# Paste relevant log output here
 ```
