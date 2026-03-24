@@ -11,11 +11,11 @@ poise = "0.6"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# Database
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "macros", "chrono"] }
+# Database (no macros — avoids DATABASE_URL requirement at compile time)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
 
-# Redis
-redis = { version = "0.24", features = ["tokio-comp"] }
+# Redis (with connection-manager feature)
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -31,7 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Config
 dotenvy = "0.15"
 
-# Zaman
+# Time
 chrono = { version = "0.4", features = ["serde"] }
 
 # Rate limiting

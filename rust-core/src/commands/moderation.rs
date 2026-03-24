@@ -1,32 +1,43 @@
 use crate::{Context, Error};
 use poise::serenity_prelude as serenity;
 
-/// Warn a user
+/// Issue a warning to a user
 #[poise::command(slash_command, required_permissions = "MODERATE_MEMBERS")]
-pub async fn warn(ctx: Context<'_>,
+pub async fn warn(
+    ctx: Context<'_>,
     #[description = "User to warn"] user: serenity::User,
-    #[description = "Reason"] reason: String,
+    #[description = "Reason for warning"] reason: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
 
-    sqlx::query("INSERT INTO warnings (user_id, guild_id, reason, moderator_id, created_at)
-                 VALUES ($1, $2, $3, $4, NOW())")
-        .bind(user.id.get() as i64).bind(guild_id.get() as i64)
-        .bind(&reason).bind(ctx.author().id.get() as i64)
-        .execute(ctx.data().db.as_ref()).await?;
+    sqlx::query(
+        "INSERT INTO warnings (user_id, guild_id, reason, moderator_id, created_at)
+         VALUES ($1, $2, $3, $4, NOW())"
+    )
+    .bind(user.id.get() as i64)
+    .bind(guild_id.get() as i64)
+    .bind(&reason)
+    .bind(ctx.author().id.get() as i64)
+    .execute(ctx.data().db.as_ref())
+    .await?;
 
     let warn_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2"
-    ).bind(user.id.get() as i64).bind(guild_id.get() as i64)
-     .fetch_one(ctx.data().db.as_ref()).await?;
+    )
+    .bind(user.id.get() as i64)
+    .bind(guild_id.get() as i64)
+    .fetch_one(ctx.data().db.as_ref())
+    .await?;
 
     // DM the user
     let dm_embed = serenity::CreateEmbed::new()
-        .title("⚠️ You have been warned")
+        .title("⚠️ You Received a Warning")
+        .field("Server", guild_id.to_string(), true)
         .field("Reason", &reason, false)
         .field("Total Warnings", warn_count.to_string(), true)
         .color(serenity::Colour::ORANGE)
         .timestamp(serenity::Timestamp::now());
+
     user.dm(ctx, serenity::CreateMessage::new().embed(dm_embed)).await.ok();
 
     let embed = serenity::CreateEmbed::new()
@@ -42,25 +53,29 @@ pub async fn warn(ctx: Context<'_>,
     Ok(())
 }
 
-/// Timeout a user
+/// Mute a user
 #[poise::command(slash_command, required_permissions = "MODERATE_MEMBERS")]
-pub async fn timeout(ctx: Context<'_>,
-    #[description = "User to timeout"] user: serenity::User,
+pub async fn timeout(
+    ctx: Context<'_>,
+    #[description = "User to mute"] user: serenity::User,
     #[description = "Duration (minutes)"] minutes: u32,
     #[description = "Reason"] reason: Option<String>,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
-    let until = chrono::Utc::now() + chrono::Duration::minutes(minutes as i64);
 
-    guild_id.edit_member(ctx, user.id,
-        serenity::EditMember::new().disable_communication_until(until.into()),
-    ).await?;
+    let until_dt = chrono::Utc::now() + chrono::Duration::minutes(minutes as i64);
+    let until_str = until_dt.to_rfc3339();
+    let until = serenity::Timestamp::parse(&until_str)?;
+
+    guild_id
+        .edit_member(ctx, user.id, serenity::EditMember::new().disable_communication_until(until))
+        .await?;
 
     let embed = serenity::CreateEmbed::new()
         .title("🔇 User Timed Out")
         .field("User", format!("{} ({})", user.name, user.id), true)
-        .field("Duration", format!("{} minute(s)", minutes), true)
+        .field("Duration", format!("{} minutes", minutes), true)
         .field("Reason", &reason, false)
         .field("Moderator", ctx.author().name.clone(), true)
         .color(serenity::Colour::RED)
@@ -72,14 +87,17 @@ pub async fn timeout(ctx: Context<'_>,
 
 /// Ban a user
 #[poise::command(slash_command, required_permissions = "BAN_MEMBERS")]
-pub async fn ban(ctx: Context<'_>,
+pub async fn ban(
+    ctx: Context<'_>,
     #[description = "User to ban"] user: serenity::User,
     #[description = "Reason"] reason: Option<String>,
-    #[description = "Delete message history (days, 0-7)"] delete_days: Option<u8>,
+    #[description = "Delete message days (0-7)"] delete_days: Option<u8>,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
-    guild_id.ban_with_reason(ctx, user.id, delete_days.unwrap_or(0).min(7), &reason).await?;
+    let delete_days = delete_days.unwrap_or(0).min(7);
+
+    guild_id.ban_with_reason(ctx, user.id, delete_days, &reason).await?;
 
     let embed = serenity::CreateEmbed::new()
         .title("🔨 User Banned")
@@ -93,9 +111,10 @@ pub async fn ban(ctx: Context<'_>,
     Ok(())
 }
 
-/// Unban a user
+/// Remove a ban
 #[poise::command(slash_command, required_permissions = "BAN_MEMBERS")]
-pub async fn unban(ctx: Context<'_>,
+pub async fn unban(
+    ctx: Context<'_>,
     #[description = "User ID"] user_id: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
@@ -105,42 +124,47 @@ pub async fn unban(ctx: Context<'_>,
     Ok(())
 }
 
-/// Clear messages
+/// Delete messages
 #[poise::command(slash_command, required_permissions = "MANAGE_MESSAGES")]
-pub async fn clear(ctx: Context<'_>,
+pub async fn clear(
+    ctx: Context<'_>,
     #[description = "Number of messages to delete (1-100)"] amount: u8,
 ) -> Result<(), Error> {
     let amount = amount.clamp(1, 100);
-    let messages = ctx.channel_id()
-        .messages(ctx, serenity::GetMessages::new().limit(amount)).await?;
+    let messages = ctx.channel_id().messages(ctx, serenity::GetMessages::new().limit(amount)).await?;
     let ids: Vec<serenity::MessageId> = messages.iter().map(|m| m.id).collect();
     let count = ids.len();
     ctx.channel_id().delete_messages(ctx, &ids).await?;
-    ctx.send(poise::CreateReply::default()
-        .content(format!("🗑️ Deleted {} message(s).", count))
-        .ephemeral(true)).await?;
+    ctx.send(
+        poise::CreateReply::default()
+            .content(format!("🗑️ Deleted {} message(s).", count))
+            .ephemeral(true),
+    ).await?;
     Ok(())
 }
 
-/// Toggle server lockdown
+/// Manual lockdown
 #[poise::command(slash_command, required_permissions = "ADMINISTRATOR")]
-pub async fn lockdown(ctx: Context<'_>,
+pub async fn lockdown(
+    ctx: Context<'_>,
     #[description = "on or off"] state: String,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
-    let mut redis = ctx.data().redis.as_ref().clone();
-    let key = format!("lockdown:{}", guild_id);
+    let mut conn = ctx.data().redis.lock().await;
+    let lockdown_key = format!("lockdown:{}", guild_id);
 
     match state.to_lowercase().as_str() {
         "on" => {
-            redis::AsyncCommands::set_ex::<_, _, ()>(&mut redis, &key, "1", 3600).await?;
+            redis::AsyncCommands::set_ex::<_, _, ()>(&mut *conn, &lockdown_key, "1", 3600usize).await?;
             ctx.say("🔒 **LOCKDOWN ACTIVE!** New member joins are blocked. Use `/lockdown off` to disable.").await?;
         }
         "off" => {
-            redis::AsyncCommands::del::<_, ()>(&mut redis, &key).await?;
+            redis::AsyncCommands::del::<_, ()>(&mut *conn, &lockdown_key).await?;
             ctx.say("🔓 Lockdown lifted. Server is back to normal.").await?;
         }
-        _ => { ctx.say("❌ Invalid option. Use `on` or `off`.").await?; }
+        _ => {
+            ctx.say("❌ Invalid option. Use `on` or `off`.").await?;
+        }
     }
     Ok(())
 }

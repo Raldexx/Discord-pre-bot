@@ -28,8 +28,11 @@ pub async fn serverinfo(ctx: Context<'_>) -> Result<(), Error> {
 
     let warn_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM warnings WHERE guild_id = $1"
-    ).bind(guild_id.get() as i64)
-     .fetch_one(ctx.data().db.as_ref()).await.unwrap_or(0);
+    )
+    .bind(guild_id.get() as i64)
+    .fetch_one(ctx.data().db.as_ref())
+    .await
+    .unwrap_or(0);
 
     let embed = serenity::CreateEmbed::new()
         .title(format!("📊 {}", guild.name))
@@ -44,33 +47,41 @@ pub async fn serverinfo(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// View warning history for a user
+/// View warning history
 #[poise::command(slash_command, required_permissions = "MODERATE_MEMBERS")]
-pub async fn warnings(ctx: Context<'_>,
+pub async fn warnings(
+    ctx: Context<'_>,
     #[description = "User"] user: serenity::User,
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
 
-    let warns = sqlx::query!(
+    // Use query_as with a simple tuple instead of query! macro
+    let rows: Vec<(String, chrono::NaiveDateTime)> = sqlx::query_as(
         "SELECT reason, created_at FROM warnings
          WHERE user_id = $1 AND guild_id = $2
-         ORDER BY created_at DESC LIMIT 10",
-        user.id.get() as i64, guild_id.get() as i64
-    ).fetch_all(ctx.data().db.as_ref()).await?;
+         ORDER BY created_at DESC LIMIT 10"
+    )
+    .bind(user.id.get() as i64)
+    .bind(guild_id.get() as i64)
+    .fetch_all(ctx.data().db.as_ref())
+    .await?;
 
-    if warns.is_empty() {
+    if rows.is_empty() {
         ctx.say(format!("✅ {} has no warnings.", user.name)).await?;
         return Ok(());
     }
 
-    let list = warns.iter().enumerate()
-        .map(|(i, w)| format!("**{}**. {} — `{}`", i + 1, w.reason, w.created_at.format("%d/%m/%Y")))
-        .collect::<Vec<_>>().join("\n");
+    let list = rows.iter().enumerate()
+        .map(|(i, (reason, created_at))| {
+            format!("**{}**. {} — `{}`", i + 1, reason, created_at.format("%d/%m/%Y"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let embed = serenity::CreateEmbed::new()
         .title(format!("⚠️ {} — Warning History", user.name))
         .description(list)
-        .field("Total", warns.len().to_string(), true)
+        .field("Total", rows.len().to_string(), true)
         .color(serenity::Colour::ORANGE)
         .timestamp(serenity::Timestamp::now());
 

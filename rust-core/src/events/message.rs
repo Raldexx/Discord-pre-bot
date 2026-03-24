@@ -14,7 +14,7 @@ pub async fn on_message(
 
     // 1. Spam check
     let spam_result = crate::protection::spam::check(
-        data.redis.as_ref().clone(),
+        data.redis.clone(),
         guild_id,
         msg.author.id,
         &msg.content,
@@ -43,18 +43,14 @@ pub async fn on_message(
     let content = msg.content.clone();
     let author_id = msg.author.id;
     let channel_id = msg.channel_id;
-    let guild_id_clone = guild_id;
     let db = data.db.clone();
     let ctx_clone = ctx.clone();
 
     tokio::spawn(async move {
         if let Ok(result) = crate::protection::ai::check_toxicity(&http, &ai_url, &content).await {
             if result.is_toxic {
-                handle_toxic_message(
-                    &ctx_clone, db, guild_id_clone,
-                    author_id, channel_id, &content,
-                    result.score, result.reason,
-                ).await.ok();
+                handle_toxic_message(&ctx_clone, db, guild_id, author_id, channel_id, result.score, result.reason)
+                    .await.ok();
             }
         }
     });
@@ -73,29 +69,31 @@ async fn handle_spam(
     warn!("Spam detected: {} (violation #{})", msg.author.name, result.violation_count);
     msg.delete(ctx).await?;
 
-    let timeout_minutes = match result.violation_count {
-        1 => 1,
-        2 => 10,
-        3 => 60,
-        _ => 1440,
+    let timeout_secs: i64 = match result.violation_count {
+        1 => 60,
+        2 => 600,
+        3 => 3600,
+        _ => 86400,
     };
 
-    let until = chrono::Utc::now() + chrono::Duration::minutes(timeout_minutes);
+    let until_str = (chrono::Utc::now() + chrono::Duration::seconds(timeout_secs)).to_rfc3339();
+    let until = serenity::Timestamp::parse(&until_str)?;
+
     guild_id.edit_member(ctx, msg.author.id,
-        serenity::EditMember::new().disable_communication_until(until.into()),
+        serenity::EditMember::new().disable_communication_until(until),
     ).await?;
 
     msg.channel_id.send_message(ctx,
         serenity::CreateMessage::new()
             .content(format!(
                 "🚫 <@{}> Spam detected! You have been muted for {} minute(s). (Violation #{})",
-                msg.author.id, timeout_minutes, result.violation_count
+                msg.author.id, timeout_secs / 60, result.violation_count
             ))
             .allowed_mentions(serenity::CreateAllowedMentions::new().users(vec![msg.author.id])),
     ).await?;
 
     log_action(ctx, data, guild_id, "spam_timeout", &msg.author,
-        &format!("{}min timeout", timeout_minutes)).await?;
+        &format!("{}min timeout", timeout_secs / 60)).await?;
 
     Ok(())
 }
@@ -106,26 +104,34 @@ async fn handle_toxic_message(
     guild_id: serenity::GuildId,
     author_id: serenity::UserId,
     channel_id: serenity::ChannelId,
-    _content: &str,
-    _score: f32,
+    score: f32,
     reason: String,
 ) -> Result<(), Error> {
-    let warn_count: i32 = sqlx::query_scalar(
-        "INSERT INTO warnings (user_id, guild_id, reason, created_at)
-         VALUES ($1, $2, $3, NOW())
-         RETURNING (SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2)::int",
+    warn!("Toxic content: score={:.2} reason={}", score, reason);
+
+    sqlx::query(
+        "INSERT INTO warnings (user_id, guild_id, reason, created_at) VALUES ($1, $2, $3, NOW())"
     )
     .bind(author_id.get() as i64)
     .bind(guild_id.get() as i64)
     .bind(&reason)
+    .execute(db.as_ref())
+    .await?;
+
+    let warn_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2"
+    )
+    .bind(author_id.get() as i64)
+    .bind(guild_id.get() as i64)
     .fetch_one(db.as_ref())
-    .await
-    .unwrap_or(1);
+    .await?;
 
     if warn_count >= 3 {
-        let until = chrono::Utc::now() + chrono::Duration::minutes(30);
+        let until_str = (chrono::Utc::now() + chrono::Duration::minutes(30)).to_rfc3339();
+        let until = serenity::Timestamp::parse(&until_str)?;
+
         guild_id.edit_member(ctx, author_id,
-            serenity::EditMember::new().disable_communication_until(until.into()),
+            serenity::EditMember::new().disable_communication_until(until),
         ).await?;
 
         channel_id.send_message(ctx,
@@ -159,7 +165,7 @@ async fn log_action(
     detail: &str,
 ) -> Result<(), Error> {
     let log_channel_id: Option<i64> = sqlx::query_scalar(
-        "SELECT log_channel_id FROM guild_config WHERE guild_id = $1",
+        "SELECT log_channel_id FROM guild_config WHERE guild_id = $1"
     )
     .bind(guild_id.get() as i64)
     .fetch_optional(data.db.as_ref())

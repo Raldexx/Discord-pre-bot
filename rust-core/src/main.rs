@@ -9,9 +9,10 @@ use std::env;
 use std::sync::Arc;
 use tracing::{error, info};
 
+#[derive(Debug)]
 pub struct Data {
     pub db: Arc<sqlx::PgPool>,
-    pub redis: Arc<redis::aio::ConnectionManager>,
+    pub redis: Arc<tokio::sync::Mutex<redis::aio::MultiplexedConnection>>,
     pub http_client: reqwest::Client,
     pub ai_service_url: String,
 }
@@ -49,13 +50,14 @@ async fn main() {
     // Redis connection
     info!("Connecting to Redis...");
     let redis_client = redis::Client::open(redis_url).expect("Failed to create Redis client");
-    let redis_conn = redis::aio::ConnectionManager::new(redis_client)
+    let redis_conn = redis_client
+        .get_multiplexed_async_connection()
         .await
         .expect("Failed to connect to Redis");
 
     let data = Data {
         db: Arc::new(pool),
-        redis: Arc::new(redis_conn),
+        redis: Arc::new(tokio::sync::Mutex::new(redis_conn)),
         http_client: reqwest::Client::new(),
         ai_service_url,
     };
@@ -73,7 +75,7 @@ async fn main() {
             },
             on_error: |error| {
                 Box::pin(async move {
-                    error!("Bot error: {:?}", error);
+                    error!("Bot error: {}", error);
                 })
             },
             ..Default::default()
