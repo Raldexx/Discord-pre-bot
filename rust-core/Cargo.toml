@@ -14,14 +14,14 @@ tokio = { version = "1", features = ["full"] }
 # Database (no macros — avoids DATABASE_URL requirement at compile time)
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
 
-# Redis (with connection-manager feature)
+# Redis
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# HTTP (communication with AI service)
+# HTTP
 reqwest = { version = "0.11", features = ["json"] }
 
 # Logging
@@ -36,6 +36,12 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Rate limiting
 dashmap = "5"
+
+# Pin heck to compatible version
+heck = "=0.4.0"
+
+# Pin unicode-segmentation to compatible version
+unicode-segmentation = "=1.11.0"
 
 [profile.release]
 opt-level = 3
