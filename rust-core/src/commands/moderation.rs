@@ -12,7 +12,7 @@ pub async fn warn(
 
     sqlx::query(
         "INSERT INTO warnings (user_id, guild_id, reason, moderator_id, created_at)
-         VALUES ($1, $2, $3, $4, NOW())"
+         VALUES ($1, $2, $3, $4, NOW())",
     )
     .bind(user.id.get() as i64)
     .bind(guild_id.get() as i64)
@@ -22,23 +22,23 @@ pub async fn warn(
     .await?;
 
     let warn_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2"
+        "SELECT COUNT(*) FROM warnings WHERE user_id = $1 AND guild_id = $2",
     )
     .bind(user.id.get() as i64)
     .bind(guild_id.get() as i64)
     .fetch_one(ctx.data().db.as_ref())
     .await?;
 
-    // DM the user
     let dm_embed = serenity::CreateEmbed::new()
         .title("⚠️ You Received a Warning")
-        .field("Server", guild_id.to_string(), true)
         .field("Reason", &reason, false)
         .field("Total Warnings", warn_count.to_string(), true)
         .color(serenity::Colour::ORANGE)
         .timestamp(serenity::Timestamp::now());
 
-    user.dm(ctx, serenity::CreateMessage::new().embed(dm_embed)).await.ok();
+    let _ = user
+        .dm(ctx, serenity::CreateMessage::new().embed(dm_embed))
+        .await;
 
     let embed = serenity::CreateEmbed::new()
         .title("⚠️ Warning Issued")
@@ -63,13 +63,16 @@ pub async fn timeout(
 ) -> Result<(), Error> {
     let guild_id = ctx.guild_id().unwrap();
     let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
-
-    let until_dt = chrono::Utc::now() + chrono::Duration::minutes(minutes as i64);
-    let until_str = until_dt.to_rfc3339();
-    let until = serenity::Timestamp::parse(&until_str)?;
+    let until_str =
+        (chrono::Utc::now() + chrono::Duration::minutes(minutes as i64)).to_rfc3339();
 
     guild_id
-        .edit_member(ctx, user.id, serenity::EditMember::new().disable_communication_until(until))
+        .edit_member(
+            ctx,
+            user.id,
+            serenity::EditMember::new()
+                .disable_communication_until(until_str),
+        )
         .await?;
 
     let embed = serenity::CreateEmbed::new()
@@ -97,7 +100,9 @@ pub async fn ban(
     let reason = reason.unwrap_or_else(|| "No reason provided".to_string());
     let delete_days = delete_days.unwrap_or(0).min(7);
 
-    guild_id.ban_with_reason(ctx, user.id, delete_days, &reason).await?;
+    guild_id
+        .ban_with_reason(ctx, user.id, delete_days, &reason)
+        .await?;
 
     let embed = serenity::CreateEmbed::new()
         .title("🔨 User Banned")
@@ -131,7 +136,10 @@ pub async fn clear(
     #[description = "Number of messages to delete (1-100)"] amount: u8,
 ) -> Result<(), Error> {
     let amount = amount.clamp(1, 100);
-    let messages = ctx.channel_id().messages(ctx, serenity::GetMessages::new().limit(amount)).await?;
+    let messages: Vec<serenity::Message> = ctx
+        .channel_id()
+        .messages(ctx, serenity::GetMessages::new().limit(amount))
+        .await?;
     let ids: Vec<serenity::MessageId> = messages.iter().map(|m| m.id).collect();
     let count = ids.len();
     ctx.channel_id().delete_messages(ctx, &ids).await?;
@@ -139,7 +147,8 @@ pub async fn clear(
         poise::CreateReply::default()
             .content(format!("🗑️ Deleted {} message(s).", count))
             .ephemeral(true),
-    ).await?;
+    )
+    .await?;
     Ok(())
 }
 
@@ -155,12 +164,20 @@ pub async fn lockdown(
 
     match state.to_lowercase().as_str() {
         "on" => {
-            redis::AsyncCommands::set_ex::<_, _, ()>(&mut *conn, &lockdown_key, "1", 3600usize).await?;
-            ctx.say("🔒 **LOCKDOWN ACTIVE!** New member joins are blocked. Use `/lockdown off` to disable.").await?;
+            redis::AsyncCommands::set_ex::<_, _, ()>(
+                &mut *conn,
+                &lockdown_key,
+                "1",
+                3600u64,
+            )
+            .await?;
+            ctx.say("🔒 **LOCKDOWN ACTIVE!** New member joins are blocked. Use `/lockdown off` to disable.")
+                .await?;
         }
         "off" => {
             redis::AsyncCommands::del::<_, ()>(&mut *conn, &lockdown_key).await?;
-            ctx.say("🔓 Lockdown lifted. Server is back to normal.").await?;
+            ctx.say("🔓 Lockdown lifted. Server is back to normal.")
+                .await?;
         }
         _ => {
             ctx.say("❌ Invalid option. Use `on` or `off`.").await?;

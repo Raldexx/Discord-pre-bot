@@ -8,7 +8,6 @@ pub struct GuildConfig {
     pub log_channel_id: Option<i64>,
     pub welcome_channel_id: Option<i64>,
     pub verification_channel_id: Option<i64>,
-    pub roles_channel_id: Option<i64>,
     pub verification_enabled: bool,
     pub spam_protection: bool,
     pub raid_protection: bool,
@@ -22,5 +21,4 @@ pub struct Warning {
     pub guild_id: i64,
     pub reason: String,
     pub moderator_id: Option<i64>,
-    pub created_at: chrono::NaiveDateTime,
 }

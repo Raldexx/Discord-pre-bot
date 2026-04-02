@@ -15,7 +15,8 @@ pub async fn check(
     user_id: serenity::UserId,
     content: &str,
 ) -> Result<SpamResult, Box<dyn std::error::Error + Send + Sync>> {
-    let mut conn = redis.lock().await;
+    let mut conn: tokio::sync::MutexGuard<redis::aio::MultiplexedConnection> =
+        redis.lock().await;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
     // Sliding window: message count in last 3 seconds
@@ -45,7 +46,7 @@ pub async fn check(
         conn.incr::<_, _, ()>(&dup_count_key, 1i64).await?;
         conn.expire::<_, ()>(&dup_count_key, 30).await?;
     } else {
-        conn.set_ex::<_, _, ()>(&last_msg_key, content, 30usize).await?;
+        conn.set_ex::<_, _, ()>(&last_msg_key, content, 30u64).await?;
         conn.del::<_, ()>(&dup_count_key).await?;
     }
     let dup_count: i64 = conn.get(&dup_count_key).await.unwrap_or(0i64);
@@ -64,7 +65,11 @@ pub async fn check(
     };
 
     if !is_spam {
-        return Ok(SpamResult { is_spam: false, violation_count: 0, reason: String::new() });
+        return Ok(SpamResult {
+            is_spam: false,
+            violation_count: 0,
+            reason: String::new(),
+        });
     }
 
     // Increment violation count
@@ -73,5 +78,9 @@ pub async fn check(
     conn.expire::<_, ()>(&count_key, 86400).await?;
     let violation_count: i32 = conn.get(&count_key).await.unwrap_or(1i32);
 
-    Ok(SpamResult { is_spam: true, violation_count, reason })
+    Ok(SpamResult {
+        is_spam: true,
+        violation_count,
+        reason,
+    })
 }

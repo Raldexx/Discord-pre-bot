@@ -1,6 +1,6 @@
 use crate::{Data, Error};
 use poise::serenity_prelude as serenity;
-use tracing::{info, warn};
+use tracing::info;
 
 pub async fn on_member_join(
     ctx: &serenity::Context,
@@ -9,24 +9,21 @@ pub async fn on_member_join(
 ) -> Result<(), Error> {
     let guild_id = member.guild_id;
 
-    // 1. Raid check
     let is_raid = crate::protection::raid::check_and_update(
         data.redis.clone(),
         guild_id,
         member.user.id,
         member.user.created_at(),
-    ).await?;
+    )
+    .await?;
 
     if is_raid {
-        warn!("RAID DETECTED! Guild: {}", guild_id);
         handle_raid(ctx, data, guild_id, member).await?;
         return Ok(());
     }
 
-    // 2. Get guild config
     let config = get_guild_config(data, guild_id).await?;
 
-    // 3. Verification or auto role
     if config.verification_enabled {
         if let Some(channel_id) = config.verification_channel_id {
             let channel = serenity::ChannelId::new(channel_id as u64);
@@ -42,31 +39,40 @@ pub async fn on_member_join(
                 .label("✅ Verify")
                 .style(serenity::ButtonStyle::Success);
 
-            channel.send_message(ctx,
-                serenity::CreateMessage::new()
-                    .embed(embed)
-                    .components(vec![serenity::CreateActionRow::Buttons(vec![button])]),
-            ).await?;
+            channel
+                .send_message(
+                    ctx,
+                    serenity::CreateMessage::new()
+                        .embed(embed)
+                        .components(vec![serenity::CreateActionRow::Buttons(vec![button])]),
+                )
+                .await?;
         }
     } else if let Some(role_id) = config.auto_role_id {
-        guild_id.member(ctx, member.user.id).await?
-            .add_role(ctx, serenity::RoleId::new(role_id as u64)).await?;
-        info!("Auto role assigned: {} → role {}", member.user.name, role_id);
+        guild_id
+            .member(ctx, member.user.id)
+            .await?
+            .add_role(ctx, serenity::RoleId::new(role_id as u64))
+            .await?;
+        info!("Auto role assigned: {}", member.user.name);
     }
 
-    // 4. Welcome message
     if let Some(welcome_channel_id) = config.welcome_channel_id {
         let channel = serenity::ChannelId::new(welcome_channel_id as u64);
         let embed = serenity::CreateEmbed::new()
             .title("🎉 New Member!")
-            .description(format!("<@{}> joined the server! Welcome.", member.user.id))
+            .description(format!(
+                "<@{}> joined the server! Welcome.",
+                member.user.id
+            ))
             .thumbnail(member.user.avatar_url().unwrap_or_default())
             .color(serenity::Colour::FOOYOO);
 
-        channel.send_message(ctx, serenity::CreateMessage::new().embed(embed)).await?;
+        channel
+            .send_message(ctx, serenity::CreateMessage::new().embed(embed))
+            .await?;
     }
 
-    // 5. Log
     log_member_event(ctx, data, guild_id, &member.user, "join").await?;
     Ok(())
 }
@@ -90,16 +96,22 @@ pub async fn handle_verification(
     let config = get_guild_config(data, guild_id).await?;
 
     if let Some(role_id) = config.auto_role_id {
-        guild_id.member(ctx, interaction.user.id).await?
-            .add_role(ctx, serenity::RoleId::new(role_id as u64)).await?;
+        guild_id
+            .member(ctx, interaction.user.id)
+            .await?
+            .add_role(ctx, serenity::RoleId::new(role_id as u64))
+            .await?;
 
-        interaction.create_response(ctx,
-            serenity::CreateInteractionResponse::Message(
-                serenity::CreateInteractionResponseMessage::new()
-                    .content("✅ Verified! Welcome to the server.")
-                    .ephemeral(true),
-            ),
-        ).await?;
+        interaction
+            .create_response(
+                ctx,
+                serenity::CreateInteractionResponse::Message(
+                    serenity::CreateInteractionResponseMessage::new()
+                        .content("✅ Verified! Welcome to the server.")
+                        .ephemeral(true),
+                ),
+            )
+            .await?;
 
         info!("User verified: {}", interaction.user.name);
     }
@@ -112,7 +124,9 @@ async fn handle_raid(
     guild_id: serenity::GuildId,
     member: &serenity::Member,
 ) -> Result<(), Error> {
-    guild_id.kick_with_reason(ctx, member.user.id, "Auto: Raid protection").await?;
+    guild_id
+        .kick_with_reason(ctx, member.user.id, "Auto: Raid protection")
+        .await?;
 
     let config = get_guild_config(data, guild_id).await?;
     if let Some(log_channel_id) = config.log_channel_id {
@@ -125,13 +139,18 @@ async fn handle_raid(
             .timestamp(serenity::Timestamp::now());
 
         if let Some(mod_role_id) = config.mod_role_id {
-            channel.send_message(ctx,
-                serenity::CreateMessage::new()
-                    .content(format!("<@&{}> 🚨 Raid detected!", mod_role_id))
-                    .embed(embed),
-            ).await?;
+            channel
+                .send_message(
+                    ctx,
+                    serenity::CreateMessage::new()
+                        .content(format!("<@&{}> 🚨 Raid detected!", mod_role_id))
+                        .embed(embed),
+                )
+                .await?;
         } else {
-            channel.send_message(ctx, serenity::CreateMessage::new().embed(embed)).await?;
+            channel
+                .send_message(ctx, serenity::CreateMessage::new().embed(embed))
+                .await?;
         }
     }
     Ok(())
@@ -160,7 +179,9 @@ async fn log_member_event(
             .color(color)
             .timestamp(serenity::Timestamp::now());
 
-        channel.send_message(ctx, serenity::CreateMessage::new().embed(embed)).await?;
+        channel
+            .send_message(ctx, serenity::CreateMessage::new().embed(embed))
+            .await?;
     }
     Ok(())
 }
@@ -175,19 +196,32 @@ struct GuildConfig {
 }
 
 async fn get_guild_config(data: &Data, guild_id: serenity::GuildId) -> Result<GuildConfig, Error> {
-    // Use query_as with tuple to avoid query! macro DATABASE_URL requirement
-    type Row = (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<bool>);
+    type Row = (
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<bool>,
+    );
     let row: Option<Row> = sqlx::query_as(
         "SELECT auto_role_id, mod_role_id, log_channel_id, welcome_channel_id,
                 verification_channel_id, verification_enabled
-         FROM guild_config WHERE guild_id = $1"
+         FROM guild_config WHERE guild_id = $1",
     )
     .bind(guild_id.get() as i64)
     .fetch_optional(data.db.as_ref())
     .await?;
 
-    if let Some((auto_role_id, mod_role_id, log_channel_id, welcome_channel_id,
-                  verification_channel_id, verification_enabled)) = row {
+    if let Some((
+        auto_role_id,
+        mod_role_id,
+        log_channel_id,
+        welcome_channel_id,
+        verification_channel_id,
+        verification_enabled,
+    )) = row
+    {
         Ok(GuildConfig {
             auto_role_id,
             mod_role_id,

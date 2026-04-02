@@ -33,21 +33,19 @@ async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not found");
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not found");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL not found");
-    let ai_service_url = env::var("AI_SERVICE_URL").unwrap_or("http://localhost:8000".to_string());
+    let ai_service_url =
+        env::var("AI_SERVICE_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
 
-    // Database connection
     info!("Connecting to database...");
     let pool = sqlx::PgPool::connect(&database_url)
         .await
         .expect("Failed to connect to database");
 
-    // Run migrations
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
         .expect("Migration failed");
 
-    // Redis connection
     info!("Connecting to Redis...");
     let redis_client = redis::Client::open(redis_url).expect("Failed to create Redis client");
     let redis_conn = redis_client
@@ -83,7 +81,7 @@ async fn main() {
         .setup(|ctx, _ready, framework| {
             Box::pin(async move {
                 info!("Starting bot...");
-                poise::builtins::register_globally(ctx, &framework.commands()).await?;
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 info!("Slash commands registered");
                 Ok(data)
             })
